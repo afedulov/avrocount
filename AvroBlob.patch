@@ -1,0 +1,182 @@
+diff --git a/build.gradle b/build.gradle
+index b20a32d..f8a2176 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -6,6 +6,16 @@ plugins {
+     id 'idea'
+ }
+ 
++apply plugin: 'idea'
++apply plugin: 'java'
++
++idea {
++    module {
++        downloadJavadoc = true
++        downloadSources = true
++    }
++}
++
+ sourceCompatibility = 1.8
+ 
+ repositories {
+@@ -14,7 +24,8 @@ repositories {
+ 
+ shadowJar {
+     manifest {
+-        attributes 'Main-Class': 'com.github.jwoschitz.avro.tool.AvroCountTool'
++//        attributes 'Main-Class': 'com.github.jwoschitz.avro.tool.AvroCountTool'
++        attributes 'Main-Class': 'com.github.jwoschitz.avro.producer.KafkaAvroBlobWriter'
+     }
+     classifier = null
+ }
+@@ -34,6 +45,8 @@ dependencies {
+         exclude group: 'log4j'
+     }
+ 
++    compile 'org.apache.kafka:kafka-clients:1.0.0'
++
+     testCompile 'junit:junit:4.12'
+     testCompile 'org.apache.avro:avro:1.8.1:tests'
+ }
+diff --git a/gradle.properties b/gradle.properties
+index b31ef9a..de55ab6 100644
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -1 +1 @@
+-version=0.4.0
++version=0.1.0
+diff --git a/gradle/wrapper/gradle-wrapper.properties b/gradle/wrapper/gradle-wrapper.properties
+index 03b8618..04814a5 100644
+--- a/gradle/wrapper/gradle-wrapper.properties
++++ b/gradle/wrapper/gradle-wrapper.properties
+@@ -1,6 +1,6 @@
+-#Fri Feb 10 19:36:55 CET 2017
++#Wed Apr 04 14:19:34 CEST 2018
+ distributionBase=GRADLE_USER_HOME
+ distributionPath=wrapper/dists
+ zipStoreBase=GRADLE_USER_HOME
+ zipStorePath=wrapper/dists
+-distributionUrl=https\://services.gradle.org/distributions/gradle-3.3-bin.zip
++distributionUrl=https\://services.gradle.org/distributions/gradle-3.3-all.zip
+diff --git a/settings.gradle b/settings.gradle
+index 0437d40..d803b34 100644
+--- a/settings.gradle
++++ b/settings.gradle
+@@ -1 +1 @@
+-rootProject.name = 'avrocount'
++rootProject.name = 'avroblobtest'
+diff --git a/src/main/java/com/github/jwoschitz/avro/producer/KafkaAvroBlobWriter.java b/src/main/java/com/github/jwoschitz/avro/producer/KafkaAvroBlobWriter.java
+new file mode 100644
+index 0000000..0575dd7
+--- /dev/null
++++ b/src/main/java/com/github/jwoschitz/avro/producer/KafkaAvroBlobWriter.java
+@@ -0,0 +1,37 @@
++package com.github.jwoschitz.avro.producer;
++
++import com.github.jwoschitz.avro.utils.AvroDataBytesGenerator;
++import org.apache.avro.Schema;
++import org.apache.avro.file.CodecFactory;
++import org.apache.avro.file.DataFileWriter;
++import org.apache.avro.generic.GenericDatumWriter;
++import org.apache.avro.generic.GenericRecord;
++
++import org.apache.kafka.clients.producer.KafkaProducer;
++import org.apache.kafka.clients.producer.ProducerRecord;
++
++import java.io.File;
++import static com.github.jwoschitz.avro.utils.AvroDataBytesGenerator.intRecordGenerator;
++
++import java.util.Properties;
++import java.util.function.BiFunction;
++
++public class KafkaAvroBlobWriter {
++
++    public static void main(String[] args) throws Exception {
++        System.out.println("Producing Avro blobs!");
++
++        Properties props = new Properties();
++        props.put("bootstrap.servers", "localhost:9092");
++        props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
++        props.put("value.serializer", "org.apache.kafka.common.serialization.ByteArraySerializer");
++
++        AvroDataBytesGenerator generator = intRecordGenerator(CodecFactory.nullCodec());
++
++        KafkaProducer<String, byte[]> producer = new KafkaProducer<>(props);
++        ProducerRecord<String, byte[]> record = new ProducerRecord<>("avroblob", generator.createAvroBytes(1000));
++        producer.send(record);
++
++        producer.close();
++    }
++}
+diff --git a/src/main/java/com/github/jwoschitz/avro/utils/AvroDataBytesGenerator.java b/src/main/java/com/github/jwoschitz/avro/utils/AvroDataBytesGenerator.java
+new file mode 100644
+index 0000000..b142189
+--- /dev/null
++++ b/src/main/java/com/github/jwoschitz/avro/utils/AvroDataBytesGenerator.java
+@@ -0,0 +1,49 @@
++package com.github.jwoschitz.avro.utils;
++
++import org.apache.avro.Schema;
++import org.apache.avro.file.CodecFactory;
++import org.apache.avro.file.DataFileWriter;
++import org.apache.avro.generic.GenericDatumWriter;
++import org.apache.avro.generic.GenericRecord;
++import org.apache.avro.generic.GenericRecordBuilder;
++
++import java.io.ByteArrayOutputStream;
++import java.util.function.BiFunction;
++
++public class AvroDataBytesGenerator {
++    private final Schema schema;
++    private final CodecFactory codecFactory;
++    private final BiFunction<Schema, Long, GenericRecord> recordCreatorFn;
++
++    public AvroDataBytesGenerator( Schema schema, BiFunction<Schema, Long, GenericRecord> recordCreatorFn, CodecFactory codecFactory) {
++        this.schema = schema;
++        this.codecFactory = codecFactory;
++        this.recordCreatorFn = recordCreatorFn;
++    }
++
++    public byte[] createAvroBytes(long recordCount) throws Exception {
++        ByteArrayOutputStream target = new ByteArrayOutputStream();
++
++        try (DataFileWriter<Object> writer = new DataFileWriter<>(new GenericDatumWriter<>(schema))) {
++            if (codecFactory != null) {
++                writer.setCodec(codecFactory);
++            }
++            writer.create(schema, target);
++
++            for (long i = 0; i < recordCount; i++) {
++                writer.append(recordCreatorFn.apply(schema, i));
++            }
++        }
++        return target.toByteArray();
++    }
++
++    public static AvroDataBytesGenerator intRecordGenerator(CodecFactory codec) throws Exception {
++        return new AvroDataBytesGenerator(
++                new Schema.Parser().parse(AvroDataBytesGenerator.class.getClassLoader().getResourceAsStream("intRecord.avsc")),
++                (schema, value) -> new GenericRecordBuilder(schema)
++                        .set("value", value)
++                        .build(),
++                codec
++        );
++    }
++}
+diff --git a/src/main/resources/intRecord.avsc b/src/main/resources/intRecord.avsc
+new file mode 100644
+index 0000000..c02fb81
+--- /dev/null
++++ b/src/main/resources/intRecord.avsc
+@@ -0,0 +1,10 @@
++{
++    "type": "record",
++    "name": "testRecord",
++    "fields": [
++        {
++            "name": "value",
++            "type": "int"
++        }
++    ]
++}
+\ No newline at end of file

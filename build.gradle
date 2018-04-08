@@ -6,6 +6,16 @@ plugins {
     id 'idea'
 }
 
+apply plugin: 'idea'
+apply plugin: 'java'
+
+idea {
+    module {
+        downloadJavadoc = true
+        downloadSources = true
+    }
+}
+
 sourceCompatibility = 1.8
 
 repositories {
@@ -14,7 +24,8 @@ repositories {
 
 shadowJar {
     manifest {
-        attributes 'Main-Class': 'com.github.jwoschitz.avro.tool.AvroCountTool'
+//        attributes 'Main-Class': 'com.github.jwoschitz.avro.tool.AvroCountTool'
+        attributes 'Main-Class': 'com.github.jwoschitz.avro.producer.KafkaAvroBlobWriter'
     }
     classifier = null
 }
@@ -33,6 +44,8 @@ dependencies {
         exclude group: 'org.apache.logging.log4j'
         exclude group: 'log4j'
     }
+
+    compile 'org.apache.kafka:kafka-clients:1.0.0'
 
     testCompile 'junit:junit:4.12'
     testCompile 'org.apache.avro:avro:1.8.1:tests'
